@@ -1,6 +1,7 @@
 from django.views import generic
-from product.models import Variant, Product
+from product.models import Variant, Product, ProductVariant
 from product.forms import ProductForm
+from django.db.models import Prefetch
 
 
 class CreateProductView(generic.TemplateView):
@@ -27,11 +28,28 @@ class ListProductView(BaseProductView, generic.ListView):
 
     def get_queryset(self):
         filter_string = {}
-        print(self.request.GET)
-        for key in self.request.GET:
-            if self.request.GET.get(key):
-                filter_string[key] = self.request.GET.get(key)
-        return Product.objects.filter(**filter_string)
+        product_title = self.request.GET.get("title", "")
+        product_variant = self.request.GET.get("variant", "")
+        price_from = self.request.GET.get("price_from", "")
+        price_to = self.request.GET.get("price_to", "")
+        date = self.request.GET.get("date", "")
+
+        if product_title:
+            filter_string["title__icontains"] = product_title
+
+        if product_variant:
+            filter_string["productvariant__variant_title__icontains"] = product_variant
+
+        if date:
+            filter_string["created_at__date"] = date
+
+        if price_from and price_to:
+            filter_string["product_variant_price__price__range"] = (
+                price_from,
+                price_to,
+            )
+        queryset = Product.objects.filter(**filter_string)
+        return queryset.distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -54,6 +72,15 @@ class ListProductView(BaseProductView, generic.ListView):
         context["end_item"] = end_item
         context["total_items"] = total_items
 
-        if self.request.GET:
-            context["request"] = self.request.GET["title__icontains"]
+        unique_variant_title = []
+        product_variant_list = []
+        variants = Variant.objects.filter(active=True)
+        for i in variants:
+            variant = {"title": i.title, "product_variant": []}
+            for pv in i.ProductVariant_variant.all():
+                if pv.variant_title not in unique_variant_title:
+                    unique_variant_title.append(pv.variant_title)
+                    variant["product_variant"].append(pv.variant_title)
+            product_variant_list.append(variant)
+        context["variants"] = product_variant_list
         return context
